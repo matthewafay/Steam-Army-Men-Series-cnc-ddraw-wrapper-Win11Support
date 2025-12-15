@@ -118,8 +118,8 @@ If the script fails, you can manually apply these settings:
 
 2. **Resolution Settings**: Create/edit `AM2.ini` in the game directory:
    ```ini
-   ScreenWidth=1920
-   ScreenHeight=1080
+   ScreenWidth=2560
+   ScreenHeight=1440
    ```
 
 ## Architecture

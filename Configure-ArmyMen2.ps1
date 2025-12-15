@@ -417,7 +417,7 @@ function Find-ArmyMen2Installation {
         [string[]]$LibraryFolders
     )
 
-    $appId = "299220"
+    $appId = "549170"
     $manifestFileName = "appmanifest_$appId.acf"
     $searchedPaths = @()
 
@@ -449,7 +449,7 @@ function Find-ArmyMen2Installation {
                     # Verify game directory exists
                     if (Test-Path $gamePath) {
                         # Verify game executable exists
-                        $executablePath = Join-Path -Path $gamePath -ChildPath "AM2.exe"
+                        $executablePath = Join-Path -Path $gamePath -ChildPath "ArmyMen2.exe"
                         
                         if (Test-Path $executablePath) {
                             Write-Verbose "Game executable found at: $executablePath"
