@@ -249,9 +249,824 @@ function Get-ScreenResolution {
 
 #endregion
 
+#region Steam Locator Module
+
+<#
+.SYNOPSIS
+    Gets the Steam installation path from the Windows Registry.
+
+.DESCRIPTION
+    Reads the Steam installation path from the Windows Registry.
+    First checks the 64-bit registry path (WOW6432Node), then falls back to the 32-bit path.
+
+.OUTPUTS
+    String path to Steam installation directory.
+
+.EXAMPLE
+    $steamPath = Get-SteamInstallPath
+    Write-Host "Steam is installed at: $steamPath"
+
+.NOTES
+    Requirements: 2.1
+#>
+function Get-SteamInstallPath {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param()
+
+    # Primary path: 64-bit Windows (most common)
+    $registryPath64 = "HKLM:\SOFTWARE\WOW6432Node\Valve\Steam"
+    # Fallback path: 32-bit Windows
+    $registryPath32 = "HKLM:\SOFTWARE\Valve\Steam"
+
+    $steamPath = $null
+
+    # Try 64-bit registry path first
+    try {
+        if (Test-Path $registryPath64) {
+            $steamPath = (Get-ItemProperty -Path $registryPath64 -Name "InstallPath" -ErrorAction Stop).InstallPath
+            if (-not [string]::IsNullOrEmpty($steamPath) -and (Test-Path $steamPath)) {
+                Write-Verbose "Steam path found via 64-bit registry: $steamPath"
+                return $steamPath
+            }
+        }
+    }
+    catch {
+        Write-Verbose "64-bit registry path failed: $($_.Exception.Message)"
+    }
+
+    # Fallback to 32-bit registry path
+    try {
+        if (Test-Path $registryPath32) {
+            $steamPath = (Get-ItemProperty -Path $registryPath32 -Name "InstallPath" -ErrorAction Stop).InstallPath
+            if (-not [string]::IsNullOrEmpty($steamPath) -and (Test-Path $steamPath)) {
+                Write-Verbose "Steam path found via 32-bit registry: $steamPath"
+                return $steamPath
+            }
+        }
+    }
+    catch {
+        Write-Verbose "32-bit registry path failed: $($_.Exception.Message)"
+    }
+
+    # Both methods failed
+    throw "Steam installation not found. Please ensure Steam is installed."
+}
+
+<#
+.SYNOPSIS
+    Parses Steam's libraryfolders.vdf to get all library folder paths.
+
+.DESCRIPTION
+    Reads and parses the libraryfolders.vdf file from Steam's steamapps directory
+    to extract all configured Steam library folder paths.
+
+.PARAMETER SteamPath
+    The path to the Steam installation directory.
+
+.OUTPUTS
+    Array of library folder path strings.
+
+.EXAMPLE
+    $libraries = Get-SteamLibraryFolders -SteamPath "C:\Program Files (x86)\Steam"
+
+.NOTES
+    Requirements: 2.2
+    Feature: army-men-2-config, Property 2: VDF parsing extracts all library paths
+#>
+function Get-SteamLibraryFolders {
+    [CmdletBinding()]
+    [OutputType([string[]])]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$SteamPath
+    )
+
+    $vdfPath = Join-Path -Path $SteamPath -ChildPath "steamapps\libraryfolders.vdf"
+
+    if (-not (Test-Path $vdfPath)) {
+        throw "Could not parse Steam library configuration at $vdfPath."
+    }
+
+    try {
+        $vdfContent = Get-Content -Path $vdfPath -Raw -ErrorAction Stop
+    }
+    catch {
+        throw "Could not parse Steam library configuration at $vdfPath."
+    }
+
+    $libraryFolders = [System.Collections.ArrayList]@()
+
+    # Parse VDF format using regex to extract path values
+    # VDF format: "path"    "C:\\Program Files (x86)\\Steam"
+    $pathPattern = '"path"\s+"([^"]+)"'
+    $regexMatches = [regex]::Matches($vdfContent, $pathPattern)
+
+    foreach ($match in $regexMatches) {
+        if ($match.Groups.Count -ge 2) {
+            $path = $match.Groups[1].Value
+            # Unescape double backslashes from VDF format
+            $path = $path -replace '\\\\', '\'
+            
+            if (-not [string]::IsNullOrEmpty($path)) {
+                [void]$libraryFolders.Add($path)
+            }
+        }
+    }
+
+    # If no paths found via "path" key, the VDF might be malformed or empty
+    if ($libraryFolders.Count -eq 0) {
+        throw "Could not parse Steam library configuration at $vdfPath."
+    }
+
+    Write-Verbose "Found $($libraryFolders.Count) Steam library folder(s)"
+    # Use comma operator to ensure array is returned even with single element
+    return ,$libraryFolders.ToArray()
+}
+
+#endregion
+
+#region Game Finder Module
+
+<#
+.SYNOPSIS
+    Finds the Army Men 2 installation directory in Steam libraries.
+
+.DESCRIPTION
+    Searches each Steam library folder for the Army Men 2 app manifest (appmanifest_299220.acf),
+    parses the manifest to extract the installation directory, and verifies the game executable exists.
+
+.PARAMETER LibraryFolders
+    Array of Steam library folder paths to search.
+
+.OUTPUTS
+    String path to the Army Men 2 installation directory.
+
+.EXAMPLE
+    $gamePath = Find-ArmyMen2Installation -LibraryFolders @("C:\Program Files (x86)\Steam", "D:\SteamLibrary")
+
+.NOTES
+    Requirements: 2.3, 2.4, 2.5
+    Feature: army-men-2-config, Property 3: Game search finds manifest when present
+#>
+function Find-ArmyMen2Installation {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string[]]$LibraryFolders
+    )
+
+    $appId = "299220"
+    $manifestFileName = "appmanifest_$appId.acf"
+    $searchedPaths = @()
+
+    foreach ($libraryFolder in $LibraryFolders) {
+        $steamAppsPath = Join-Path -Path $libraryFolder -ChildPath "steamapps"
+        $manifestPath = Join-Path -Path $steamAppsPath -ChildPath $manifestFileName
+        $searchedPaths += $steamAppsPath
+
+        Write-Verbose "Searching for Army Men 2 manifest at: $manifestPath"
+
+        if (Test-Path $manifestPath) {
+            try {
+                $manifestContent = Get-Content -Path $manifestPath -Raw -ErrorAction Stop
+                
+                # Parse manifest to extract installdir value
+                # ACF format: "installdir"    "Army Men II"
+                $installDirPattern = '"installdir"\s+"([^"]+)"'
+                $match = [regex]::Match($manifestContent, $installDirPattern)
+
+                if ($match.Success -and $match.Groups.Count -ge 2) {
+                    $installDir = $match.Groups[1].Value
+                    
+                    # Construct full game installation path
+                    $gamePath = Join-Path -Path $steamAppsPath -ChildPath "common\$installDir"
+                    
+                    Write-Verbose "Found install directory: $installDir"
+                    Write-Verbose "Full game path: $gamePath"
+
+                    # Verify game directory exists
+                    if (Test-Path $gamePath) {
+                        # Verify game executable exists
+                        $executablePath = Join-Path -Path $gamePath -ChildPath "AM2.exe"
+                        
+                        if (Test-Path $executablePath) {
+                            Write-Verbose "Game executable found at: $executablePath"
+                            return $gamePath
+                        }
+                        else {
+                            Write-Verbose "Game executable not found at: $executablePath"
+                            # Continue searching other libraries
+                        }
+                    }
+                    else {
+                        Write-Verbose "Game directory does not exist: $gamePath"
+                        # Continue searching other libraries
+                    }
+                }
+                else {
+                    Write-Verbose "Could not parse installdir from manifest: $manifestPath"
+                }
+            }
+            catch {
+                Write-Verbose "Error reading manifest at $manifestPath : $($_.Exception.Message)"
+                # Continue searching other libraries
+            }
+        }
+    }
+
+    # Game not found in any library
+    $searchedPathsList = $searchedPaths -join ", "
+    throw "Army Men 2 (App ID $appId) not found. Searched libraries: $searchedPathsList"
+}
+
+#endregion
+
+#region Compatibility Configurator Module
+
+<#
+.SYNOPSIS
+    Applies Windows compatibility settings for Army Men 2.
+
+.DESCRIPTION
+    Sets Windows compatibility flags for the game executable via the registry.
+    Applies the following settings:
+    - Windows XP Service Pack 3 compatibility mode
+    - Run as Administrator
+    - Disable fullscreen optimizations
+    - 16-bit color mode
+
+.PARAMETER ExecutablePath
+    The full path to the game executable (AM2.exe).
+
+.OUTPUTS
+    PSCustomObject with applied settings summary.
+
+.EXAMPLE
+    $result = Set-CompatibilitySettings -ExecutablePath "C:\Steam\steamapps\common\Army Men II\AM2.exe"
+
+.NOTES
+    Requirements: 3.1, 3.2, 3.3, 3.4, 3.5
+    Feature: army-men-2-config, Property 4: All compatibility flags are correctly applied
+#>
+function Set-CompatibilitySettings {
+    [CmdletBinding()]
+    [OutputType([PSCustomObject])]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$ExecutablePath
+    )
+
+    # Validate executable path
+    if ([string]::IsNullOrWhiteSpace($ExecutablePath)) {
+        throw "Executable path cannot be empty."
+    }
+
+    # Build compatibility flags string
+    # ~ = Use settings from this entry (not inherited)
+    # WINXPSP3 = Windows XP Service Pack 3 compatibility mode
+    # RUNASADMIN = Run as Administrator
+    # DISABLEDXMAXIMIZEDWINDOWEDMODE = Disable fullscreen optimizations
+    # 16BITCOLOR = Reduced color mode (16-bit)
+    $compatibilityFlags = "~ WINXPSP3 RUNASADMIN DISABLEDXMAXIMIZEDWINDOWEDMODE 16BITCOLOR"
+
+    # Registry path for compatibility layers
+    $registryPath = "HKCU:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Layers"
+
+    try {
+        # Ensure the registry path exists
+        if (-not (Test-Path $registryPath)) {
+            New-Item -Path $registryPath -Force -ErrorAction Stop | Out-Null
+            Write-Verbose "Created registry path: $registryPath"
+        }
+
+        # Set the compatibility flags for the executable
+        Set-ItemProperty -Path $registryPath -Name $ExecutablePath -Value $compatibilityFlags -Type String -ErrorAction Stop
+        Write-Verbose "Applied compatibility flags to: $ExecutablePath"
+        Write-Verbose "Flags: $compatibilityFlags"
+
+        # Return summary of applied settings
+        $result = [PSCustomObject]@{
+            ExecutablePath      = $ExecutablePath
+            RegistryPath        = $registryPath
+            CompatibilityFlags  = $compatibilityFlags
+            Settings            = @{
+                CompatibilityMode           = "Windows XP Service Pack 3"
+                RunAsAdministrator          = $true
+                DisableFullscreenOptimizations = $true
+                ReducedColorMode            = "16-bit"
+            }
+            Success             = $true
+        }
+
+        return $result
+    }
+    catch {
+        $errorMessage = "Failed to apply compatibility settings: $($_.Exception.Message). Try running as Administrator."
+        throw $errorMessage
+    }
+}
+
+<#
+.SYNOPSIS
+    Gets the current compatibility settings for an executable.
+
+.DESCRIPTION
+    Reads the compatibility flags from the registry for the specified executable.
+
+.PARAMETER ExecutablePath
+    The full path to the executable.
+
+.OUTPUTS
+    String containing the compatibility flags, or $null if not set.
+
+.EXAMPLE
+    $flags = Get-CompatibilitySettings -ExecutablePath "C:\Steam\steamapps\common\Army Men II\AM2.exe"
+#>
+function Get-CompatibilitySettings {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$ExecutablePath
+    )
+
+    $registryPath = "HKCU:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Layers"
+
+    try {
+        if (Test-Path $registryPath) {
+            $value = Get-ItemProperty -Path $registryPath -Name $ExecutablePath -ErrorAction SilentlyContinue
+            if ($null -ne $value) {
+                return $value.$ExecutablePath
+            }
+        }
+        return $null
+    }
+    catch {
+        return $null
+    }
+}
+
+<#
+.SYNOPSIS
+    Removes compatibility settings for an executable.
+
+.DESCRIPTION
+    Removes the compatibility flags from the registry for the specified executable.
+
+.PARAMETER ExecutablePath
+    The full path to the executable.
+
+.EXAMPLE
+    Remove-CompatibilitySettings -ExecutablePath "C:\Steam\steamapps\common\Army Men II\AM2.exe"
+#>
+function Remove-CompatibilitySettings {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$ExecutablePath
+    )
+
+    $registryPath = "HKCU:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Layers"
+
+    try {
+        if (Test-Path $registryPath) {
+            Remove-ItemProperty -Path $registryPath -Name $ExecutablePath -ErrorAction SilentlyContinue
+        }
+    }
+    catch {
+        # Silently ignore errors during cleanup
+    }
+}
+
+#endregion
+
+#region Game Configurator Module
+
+<#
+.SYNOPSIS
+    Gets the path to the Army Men 2 configuration file.
+
+.DESCRIPTION
+    Locates the game's configuration file by checking the game directory first,
+    then falling back to the user's AppData folder.
+
+.PARAMETER GamePath
+    The path to the Army Men 2 installation directory.
+
+.OUTPUTS
+    String path to the configuration file (may not exist yet).
+
+.EXAMPLE
+    $configPath = Get-GameConfigPath -GamePath "C:\Steam\steamapps\common\Army Men II"
+
+.NOTES
+    Requirements: 4.1
+#>
+function Get-GameConfigPath {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$GamePath
+    )
+
+    # Primary location: game directory
+    $gameConfigPath = Join-Path -Path $GamePath -ChildPath "AM2.ini"
+    
+    if (Test-Path $gameConfigPath) {
+        Write-Verbose "Found config file in game directory: $gameConfigPath"
+        return $gameConfigPath
+    }
+
+    # Secondary location: AppData\Local
+    $appDataPath = [Environment]::GetFolderPath('LocalApplicationData')
+    $appDataConfigPath = Join-Path -Path $appDataPath -ChildPath "Army Men II\AM2.ini"
+    
+    if (Test-Path $appDataConfigPath) {
+        Write-Verbose "Found config file in AppData: $appDataConfigPath"
+        return $appDataConfigPath
+    }
+
+    # Default to game directory for new config file creation
+    Write-Verbose "No existing config file found, will create at: $gameConfigPath"
+    return $gameConfigPath
+}
+
+<#
+.SYNOPSIS
+    Sets the game resolution in the Army Men 2 configuration file.
+
+.DESCRIPTION
+    Writes the screen resolution values to the game's configuration file.
+    Creates the configuration file if it doesn't exist.
+    The configuration file uses INI format with ScreenWidth and ScreenHeight keys.
+
+.PARAMETER GamePath
+    The path to the Army Men 2 installation directory.
+
+.PARAMETER Width
+    The screen width in pixels.
+
+.PARAMETER Height
+    The screen height in pixels.
+
+.OUTPUTS
+    PSCustomObject with ConfigFilePath and Success properties.
+
+.EXAMPLE
+    $result = Set-GameResolution -GamePath "C:\Steam\steamapps\common\Army Men II" -Width 1920 -Height 1080
+
+.NOTES
+    Requirements: 4.1, 4.2, 4.3
+    Feature: army-men-2-config, Property 5: Configuration round-trip preserves resolution
+#>
+function Set-GameResolution {
+    [CmdletBinding()]
+    [OutputType([PSCustomObject])]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$GamePath,
+
+        [Parameter(Mandatory = $true)]
+        [ValidateRange(1, 7680)]
+        [int]$Width,
+
+        [Parameter(Mandatory = $true)]
+        [ValidateRange(1, 4320)]
+        [int]$Height
+    )
+
+    # Validate game path
+    if ([string]::IsNullOrWhiteSpace($GamePath)) {
+        throw "Game path cannot be empty."
+    }
+
+    if (-not (Test-Path $GamePath)) {
+        throw "Game path does not exist: $GamePath"
+    }
+
+    # Get the configuration file path
+    $configPath = Get-GameConfigPath -GamePath $GamePath
+
+    try {
+        # Ensure the directory exists
+        $configDir = Split-Path -Path $configPath -Parent
+        if (-not (Test-Path $configDir)) {
+            New-Item -ItemType Directory -Path $configDir -Force -ErrorAction Stop | Out-Null
+            Write-Verbose "Created config directory: $configDir"
+        }
+
+        # Read existing config content or create new
+        $configContent = @{}
+        if (Test-Path $configPath) {
+            # Parse existing INI file
+            $existingContent = Get-Content -Path $configPath -ErrorAction Stop
+            foreach ($line in $existingContent) {
+                if ($line -match '^\s*([^=]+)\s*=\s*(.*)$') {
+                    $key = $matches[1].Trim()
+                    $value = $matches[2].Trim()
+                    $configContent[$key] = $value
+                }
+            }
+            Write-Verbose "Read existing config with $($configContent.Count) entries"
+        }
+
+        # Update resolution values
+        $configContent['ScreenWidth'] = $Width.ToString()
+        $configContent['ScreenHeight'] = $Height.ToString()
+
+        # Write config file
+        $outputLines = @()
+        foreach ($key in $configContent.Keys | Sort-Object) {
+            $outputLines += "$key=$($configContent[$key])"
+        }
+        
+        Set-Content -Path $configPath -Value $outputLines -Force -ErrorAction Stop
+        Write-Verbose "Wrote config file: $configPath"
+
+        # Return success result
+        $result = [PSCustomObject]@{
+            ConfigFilePath = $configPath
+            Width          = $Width
+            Height         = $Height
+            Success        = $true
+        }
+
+        return $result
+    }
+    catch {
+        $manualInstructions = @"
+Could not write game configuration. Manual steps:
+1. Navigate to: $GamePath
+2. Create or edit file: AM2.ini
+3. Add the following lines:
+   ScreenWidth=$Width
+   ScreenHeight=$Height
+"@
+        throw $manualInstructions
+    }
+}
+
+<#
+.SYNOPSIS
+    Gets the current resolution settings from the Army Men 2 configuration file.
+
+.DESCRIPTION
+    Reads the screen resolution values from the game's configuration file.
+
+.PARAMETER GamePath
+    The path to the Army Men 2 installation directory.
+
+.OUTPUTS
+    PSCustomObject with Width and Height properties, or $null if not found.
+
+.EXAMPLE
+    $resolution = Get-GameResolution -GamePath "C:\Steam\steamapps\common\Army Men II"
+
+.NOTES
+    Requirements: 4.2
+#>
+function Get-GameResolution {
+    [CmdletBinding()]
+    [OutputType([PSCustomObject])]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$GamePath
+    )
+
+    $configPath = Get-GameConfigPath -GamePath $GamePath
+
+    if (-not (Test-Path $configPath)) {
+        return $null
+    }
+
+    try {
+        $content = Get-Content -Path $configPath -ErrorAction Stop
+        $width = $null
+        $height = $null
+
+        foreach ($line in $content) {
+            if ($line -match '^\s*ScreenWidth\s*=\s*(\d+)\s*$') {
+                $width = [int]$matches[1]
+            }
+            elseif ($line -match '^\s*ScreenHeight\s*=\s*(\d+)\s*$') {
+                $height = [int]$matches[1]
+            }
+        }
+
+        if ($null -ne $width -and $null -ne $height) {
+            return [PSCustomObject]@{
+                Width  = $width
+                Height = $height
+            }
+        }
+
+        return $null
+    }
+    catch {
+        Write-Verbose "Error reading config file: $($_.Exception.Message)"
+        return $null
+    }
+}
+
+<#
+.SYNOPSIS
+    Removes the game configuration file.
+
+.DESCRIPTION
+    Deletes the Army Men 2 configuration file. Used for testing cleanup.
+
+.PARAMETER GamePath
+    The path to the Army Men 2 installation directory.
+
+.EXAMPLE
+    Remove-GameConfig -GamePath "C:\Steam\steamapps\common\Army Men II"
+#>
+function Remove-GameConfig {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$GamePath
+    )
+
+    $configPath = Get-GameConfigPath -GamePath $GamePath
+
+    if (Test-Path $configPath) {
+        Remove-Item -Path $configPath -Force -ErrorAction SilentlyContinue
+    }
+}
+
+#endregion
+
 #region Main Execution
 
-# Main script execution will be wired up in task 8
-# For now, export functions for testing
+<#
+.SYNOPSIS
+    Main execution flow for configuring Army Men 2.
+
+.DESCRIPTION
+    Orchestrates the complete configuration process:
+    1. Detect screen resolution
+    2. Locate Steam installation
+    3. Find Army Men 2 game
+    4. Apply compatibility settings
+    5. Configure game resolution
+    6. Display summary
+
+.NOTES
+    Requirements: 5.1, 5.2, 5.3, 5.4
+    Feature: army-men-2-config, Property 6: Status messages generated for each phase
+#>
+function Invoke-ArmyMen2Configuration {
+    [CmdletBinding()]
+    param()
+
+    # Initialize configuration state
+    $script:ConfigState = @{
+        Resolution = @{
+            Width = 0
+            Height = 0
+        }
+        SteamPath = ""
+        LibraryFolders = @()
+        GamePath = ""
+        ExecutablePath = ""
+        CompatibilityFlags = ""
+        ConfigFilePath = ""
+        Errors = @()
+        Success = $false
+    }
+
+    $allStepsSucceeded = $true
+
+    #region Phase 1: Resolution Detection
+    Write-Status -Message "Detecting screen resolution..." -Type "Info"
+    
+    try {
+        $resolution = Get-ScreenResolution
+        $script:ConfigState.Resolution.Width = $resolution.Width
+        $script:ConfigState.Resolution.Height = $resolution.Height
+        Write-Status -Message "Screen resolution detected: $($resolution.Width)x$($resolution.Height)" -Type "Success"
+    }
+    catch {
+        $errorMsg = "Failed to detect screen resolution: $($_.Exception.Message)"
+        $script:ConfigState.Errors += $errorMsg
+        Write-Status -Message $errorMsg -Type "Error"
+        $allStepsSucceeded = $false
+        # Resolution detection is critical - cannot continue without it
+        Write-Summary -Results $script:ConfigState
+        return $script:ConfigState
+    }
+    #endregion
+
+    #region Phase 2: Steam Location
+    Write-Status -Message "Locating Steam installation..." -Type "Info"
+    
+    try {
+        $steamPath = Get-SteamInstallPath
+        $script:ConfigState.SteamPath = $steamPath
+        Write-Status -Message "Steam found at: $steamPath" -Type "Success"
+    }
+    catch {
+        $errorMsg = "Failed to locate Steam: $($_.Exception.Message)"
+        $script:ConfigState.Errors += $errorMsg
+        Write-Status -Message $errorMsg -Type "Error"
+        $allStepsSucceeded = $false
+        # Steam location is critical - cannot continue without it
+        Write-Summary -Results $script:ConfigState
+        return $script:ConfigState
+    }
+
+    # Parse Steam library folders
+    Write-Status -Message "Parsing Steam library folders..." -Type "Info"
+    
+    try {
+        $libraryFolders = Get-SteamLibraryFolders -SteamPath $steamPath
+        $script:ConfigState.LibraryFolders = $libraryFolders
+        Write-Status -Message "Found $($libraryFolders.Count) Steam library folder(s)" -Type "Success"
+    }
+    catch {
+        $errorMsg = "Failed to parse Steam libraries: $($_.Exception.Message)"
+        $script:ConfigState.Errors += $errorMsg
+        Write-Status -Message $errorMsg -Type "Error"
+        $allStepsSucceeded = $false
+        # Library parsing is critical - cannot continue without it
+        Write-Summary -Results $script:ConfigState
+        return $script:ConfigState
+    }
+    #endregion
+
+    #region Phase 3: Game Search
+    Write-Status -Message "Searching for Army Men 2 installation..." -Type "Info"
+    
+    try {
+        $gamePath = Find-ArmyMen2Installation -LibraryFolders $libraryFolders
+        $script:ConfigState.GamePath = $gamePath
+        $script:ConfigState.ExecutablePath = Join-Path -Path $gamePath -ChildPath "AM2.exe"
+        Write-Status -Message "Army Men 2 found at: $gamePath" -Type "Success"
+    }
+    catch {
+        $errorMsg = "Failed to find Army Men 2: $($_.Exception.Message)"
+        $script:ConfigState.Errors += $errorMsg
+        Write-Status -Message $errorMsg -Type "Error"
+        $allStepsSucceeded = $false
+        # Game location is critical - cannot continue without it
+        Write-Summary -Results $script:ConfigState
+        return $script:ConfigState
+    }
+    #endregion
+
+    #region Phase 4: Compatibility Settings
+    Write-Status -Message "Applying Windows compatibility settings..." -Type "Info"
+    
+    try {
+        $compatResult = Set-CompatibilitySettings -ExecutablePath $script:ConfigState.ExecutablePath
+        $script:ConfigState.CompatibilityFlags = $compatResult.CompatibilityFlags
+        Write-Status -Message "Compatibility settings applied successfully" -Type "Success"
+        Write-Host "    - Windows XP SP3 compatibility mode" -ForegroundColor Gray
+        Write-Host "    - Run as Administrator" -ForegroundColor Gray
+        Write-Host "    - Disable fullscreen optimizations" -ForegroundColor Gray
+        Write-Host "    - 16-bit color mode" -ForegroundColor Gray
+    }
+    catch {
+        $errorMsg = "Failed to apply compatibility settings: $($_.Exception.Message)"
+        $script:ConfigState.Errors += $errorMsg
+        Write-Status -Message $errorMsg -Type "Error"
+        $allStepsSucceeded = $false
+        # Continue with remaining steps even if this fails (Requirement 5.3)
+    }
+    #endregion
+
+    #region Phase 5: Game Configuration
+    Write-Status -Message "Configuring game resolution settings..." -Type "Info"
+    
+    try {
+        $configResult = Set-GameResolution -GamePath $script:ConfigState.GamePath -Width $script:ConfigState.Resolution.Width -Height $script:ConfigState.Resolution.Height
+        $script:ConfigState.ConfigFilePath = $configResult.ConfigFilePath
+        Write-Status -Message "Game resolution configured: $($script:ConfigState.Resolution.Width)x$($script:ConfigState.Resolution.Height)" -Type "Success"
+    }
+    catch {
+        $errorMsg = "Failed to configure game resolution: $($_.Exception.Message)"
+        $script:ConfigState.Errors += $errorMsg
+        Write-Status -Message $errorMsg -Type "Error"
+        $allStepsSucceeded = $false
+        # Continue to summary even if this fails (Requirement 5.3)
+    }
+    #endregion
+
+    #region Phase 6: Summary
+    $script:ConfigState.Success = $allStepsSucceeded
+    Write-Summary -Results $script:ConfigState
+    #endregion
+
+    return $script:ConfigState
+}
+
+# Execute main configuration when script is run directly (not dot-sourced for testing)
+if ($MyInvocation.InvocationName -ne '.') {
+    Invoke-ArmyMen2Configuration
+}
 
 #endregion
