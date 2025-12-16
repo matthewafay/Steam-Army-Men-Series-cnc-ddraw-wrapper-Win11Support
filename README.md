@@ -36,6 +36,8 @@ This tool automates the complex setup process required to run Army Men games on 
 1. **Prerequisites**: 
    - Ensure you have one or more Army Men games installed via Steam
    - Games must be installed and appear in your Steam library
+   - Steam should be installed in the default location on C:\ drive (`C:\Program Files (x86)\Steam`)
+   - Games should be in default Steam library locations (the script will search all Steam libraries)
    - The script will show "(Installed)" or "(Not Installed)" next to each game option
 2. **Run the script**: Execute `Configure-ArmyMen.ps1` in PowerShell
 3. **Select your game**: Choose which Army Men game to configure (1, 2, 3, or 4)
@@ -97,7 +99,9 @@ This tool automates the complex setup process required to run Army Men games on 
 
 - **PowerShell 5.1** or later
 - **Windows 10/11** (tested on Windows 11)
+- **Steam** installed in default location (`C:\Program Files (x86)\Steam`)
 - **Army Men games** installed via Steam (Army Men, Army Men II, Army Men RTS, and/or Army Men: Toys in Space)
+- **Games installed on C:\ drive** in default Steam library locations
 - **Internet connection** (to download cnc-ddraw)
 - **DirectPlay Windows feature** (script will prompt for installation if needed)
 
@@ -126,8 +130,9 @@ Note: The test file still references the old script name but tests the same func
 ### Common Issues
 
 **"Steam installation not found"**
-- Ensure Steam is installed and has been run at least once
+- Ensure Steam is installed in the default location (`C:\Program Files (x86)\Steam`)
 - Check that Steam appears in Windows "Add or Remove Programs"
+- If Steam is installed elsewhere, the script may not detect it automatically
 
 **"Army Men [game] not found"**
 - Verify the selected game is installed via Steam (should show "Installed" in the menu)
