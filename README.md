@@ -137,6 +137,7 @@ If the script fails, you can manually set up cnc-ddraw:
    vsync=true
    maxfps=60
    shader=Shaders\sharp-upscale.glsl
+   no_compat_warning=true
    ```
 4. **DirectPlay**: Enable via Windows Features → Legacy Components → DirectPlay
 

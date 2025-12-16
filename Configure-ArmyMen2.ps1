@@ -1093,9 +1093,10 @@ boxing=false
 shader=Shaders\sharp-upscale.glsl
 maxfps=60
 showfps=true
+no_compat_warning=true
 "@
 
-        # Create alternative configurations
+        # Create alternative configurations (all include no_compat_warning=true)
         $noShaderConfig = $ddrawConfig -replace "shader=Shaders\\sharp-upscale\.glsl", "shader="
         $smoothConfig = $ddrawConfig -replace "sharp-upscale\.glsl", "smooth-upscale.glsl"
         $pixelPerfectConfig = $ddrawConfig -replace "width=1600`nheight=1200`nmaintas=true", "width=1280`nheight=960`nmaintas=false" -replace "resizable=true", "resizable=false"
