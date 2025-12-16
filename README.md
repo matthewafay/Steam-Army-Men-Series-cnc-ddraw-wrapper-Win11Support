@@ -17,7 +17,9 @@ This tool automates the complex setup process required to run Army Men 2 on mode
 - ✅ **Steam Integration** - Automatically finds Steam installation and library folders
 - ✅ **Game Discovery** - Locates Army Men 2 installation across multiple Steam libraries
 - ✅ **cnc-ddraw Integration** - Downloads and installs cnc-ddraw wrapper for modern compatibility
-- ✅ **Windowed Mode** - Forces the game to run in a resizable window instead of changing screen resolution
+- ✅ **Enhanced Graphics** - 1600x1200 windowed mode with OpenGL renderer and sharp upscaling
+- ✅ **Multiple Visual Modes** - Sharp upscaling, smooth upscaling, pixel-perfect, and original modes
+- ✅ **Graphics Switcher** - Easy-to-use tool for switching between different visual configurations
 - ✅ **DirectPlay Support** - Guides users through DirectPlay installation when needed
 - ✅ **Comprehensive Testing** - Includes extensive unit tests and property-based testing
 
@@ -48,17 +50,19 @@ This tool automates the complex setup process required to run Army Men 2 on mode
 - Parses Steam manifest files to locate game installation directory
 - Verifies game executable (`AM2.exe`) exists
 
-### Phase 4: cnc-ddraw Installation
+### Phase 4: cnc-ddraw Installation & Graphics Enhancement
 - Downloads the latest cnc-ddraw wrapper from GitHub
 - Backs up the original ddraw.dll file
-- Installs cnc-ddraw with windowed mode configuration
-- Configures GDI renderer for maximum compatibility
+- Installs cnc-ddraw with enhanced windowed mode configuration
+- Creates upscaling shaders (sharp and smooth) for better graphics
+- Configures OpenGL renderer with VSync for optimal performance
+- Sets up 1600x1200 windowed mode for comfortable gameplay
 
-### Phase 5: Game Configuration
-- Creates or updates game configuration files
+### Phase 5: Graphics Configuration System
+- Creates multiple visual presets (sharp, smooth, pixel-perfect, original)
+- Installs Graphics_Switcher.bat for easy configuration switching
 - Forces windowed mode to prevent screen resolution changes
-- Disables DirectDraw acceleration that causes crashes
-- Creates backup launcher for troubleshooting
+- Enables FPS counter support and performance optimizations
 
 ## Requirements
 
@@ -110,9 +114,9 @@ Invoke-Pester .\tests\Configure-ArmyMen2.Tests.ps1 -Tag "Property"
 - DirectPlay is required for the game's networking code
 
 **"Black screen in windowed mode"**
-- The script automatically configures cnc-ddraw with GDI renderer
-- If issues persist, try editing `ddraw.ini` in the game folder
-- Change `renderer=gdi` to `renderer=opengl` or `renderer=direct3d9`
+- The script automatically configures cnc-ddraw with OpenGL renderer and upscaling
+- If issues persist, use Graphics_Switcher.bat to try different visual modes
+- Fallback: Change `renderer=opengl` to `renderer=gdi` in ddraw.ini
 
 ### Manual Configuration
 
@@ -120,14 +124,19 @@ If the script fails, you can manually set up cnc-ddraw:
 
 1. **Download cnc-ddraw**: Get the latest version from GitHub (FunkyFr3sh/cnc-ddraw)
 2. **Install**: Copy `ddraw.dll` to the game directory
-3. **Configure**: Create `ddraw.ini` with these settings:
+3. **Configure**: Create `ddraw.ini` with enhanced settings:
    ```ini
    [ddraw]
    windowed=true
    fullscreen=false
-   renderer=gdi
+   width=1600
+   height=1200
+   renderer=opengl
    nonexclusive=true
    singlecpu=true
+   vsync=true
+   maxfps=60
+   shader=Shaders\sharp-upscale.glsl
    ```
 4. **DirectPlay**: Enable via Windows Features → Legacy Components → DirectPlay
 
@@ -148,14 +157,116 @@ The script is organized into modular components:
 1. Run the configuration script: `.\Configure-ArmyMen2.ps1`
 2. Launch Army Men 2 from Steam
 3. If prompted for DirectPlay, click "Install this feature" and restart
-4. Game should now open in a resizable window
+4. Game opens in enhanced 1600x1200 windowed mode
 
 **What You Get:**
-- ✅ Windowed mode (no more screen resolution changes)
-- ✅ Modern rendering via cnc-ddraw wrapper  
-- ✅ Stable performance on Windows 11
-- ✅ Resizable game window
-- ✅ No crashes or compatibility issues
+- ✅ **Enhanced Graphics** - Sharp upscaling shader for crisp, clean pixels
+- ✅ **Large Window** - 1600x1200 default size (still resizable)
+- ✅ **Modern Rendering** - OpenGL with VSync for smooth 60 FPS
+- ✅ **Multiple Visual Modes** - Sharp, smooth, pixel-perfect, and original presets
+- ✅ **Graphics Switcher** - Easy tool to switch between visual configurations
+- ✅ **Stable Performance** - No crashes or screen resolution changes
+- ✅ **FPS Counter Support** - Use Steam's built-in FPS counter
+
+## Graphics Modes
+
+The script creates multiple visual presets you can switch between:
+
+### **Sharp Upscaling** ⭐ (Default)
+- Pixel-perfect scaling with crisp, clean edges
+- Best for maintaining the original retro aesthetic
+- 1600x1200 windowed mode with OpenGL + VSync
+
+### **Smooth Upscaling**
+- Anti-aliased scaling for a softer, modern look
+- Reduces pixelation but may appear slightly blurred
+- Same performance as sharp mode
+
+### **Pixel Perfect 2x**
+- Fixed 1280x960 window (exactly 2x original resolution)
+- Non-resizable for perfect pixel alignment
+- Best for purists who want exact scaling
+
+### **Enhanced OpenGL**
+- Modern rendering without upscaling shaders
+- Good performance baseline
+- Fallback if shaders cause issues
+
+### **Original GDI**
+- Safe fallback using the original rendering method
+- Use if you experience any compatibility issues
+
+## Switching Graphics Modes
+
+Use the **Graphics_Switcher.bat** file in your game directory:
+1. Navigate to `C:\Program Files (x86)\Steam\steamapps\common\Army Men II`
+2. Double-click `Graphics_Switcher.bat`
+3. Choose your preferred visual mode (1-5)
+4. Launch the game to see the changes
+
+## FAQ / Known Issues
+
+### **❓ "DirectPlay Required" Popup Appears**
+**Problem**: Windows shows "An app on your PC needs the following Windows feature: DirectPlay"
+
+**Solution**:
+1. Click **"Install this feature"** (don't skip it!)
+2. Wait for installation to complete
+3. **Restart your computer** (this is required)
+4. Launch the game again
+
+**Why this happens**: Army Men 2 uses DirectPlay for its networking code, even in single-player mode. Windows 11 doesn't include DirectPlay by default, but it's available as an optional feature.
+
+### **❓ Game Shows Black Screen in Window**
+**Problem**: Game window opens but shows only black screen
+
+**Solutions**:
+1. Try different graphics modes using `Graphics_Switcher.bat`
+2. Start with "Original GDI" mode (option 1)
+3. If that works, try "Enhanced OpenGL" (option 2)
+4. Check that your graphics drivers are up to date
+
+### **❓ Game Crashes on Startup**
+**Problem**: Game closes immediately or shows error message
+
+**Solutions**:
+1. Make sure DirectPlay is installed (see above)
+2. Run the game as Administrator
+3. Use Graphics_Switcher.bat to try "Original GDI" mode
+4. Verify game files in Steam (Right-click game → Properties → Local Files → Verify)
+
+### **❓ Graphics Look Blurry or Pixelated**
+**Problem**: Game doesn't look as sharp as expected
+
+**Solutions**:
+1. Use Graphics_Switcher.bat to try "Sharp Upscaling" mode
+2. For pixel-perfect scaling, try "Pixel Perfect 2x" mode
+3. Make sure you're not running in fullscreen mode (Alt+Enter to toggle)
+
+### **❓ FPS Counter Not Showing**
+**Problem**: Can't see frame rate display
+
+**Solutions**:
+1. Enable Steam's FPS counter: Steam → Settings → In-Game → FPS Counter → Bottom-left
+2. Try keyboard shortcuts in-game: Ctrl+Tab, F1, or Ctrl+F
+3. Use Windows Game Bar: Win+G → Performance tab
+
+### **❓ Window Too Small/Large**
+**Problem**: Game window size isn't comfortable
+
+**Solutions**:
+1. Drag window corners to resize (if resizable mode is enabled)
+2. Use Graphics_Switcher.bat to try different preset sizes
+3. Edit `ddraw.ini` manually to set custom width/height values
+
+### **❓ Script Fails to Download cnc-ddraw**
+**Problem**: "Failed to install cnc-ddraw" error message
+
+**Solutions**:
+1. Check your internet connection
+2. Run PowerShell as Administrator
+3. Temporarily disable antivirus/firewall
+4. Download cnc-ddraw manually from GitHub (FunkyFr3sh/cnc-ddraw)
 
 ## Contributing
 

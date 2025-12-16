@@ -146,7 +146,8 @@ function Write-Summary {
 
     # cnc-ddraw
     if (-not [string]::IsNullOrEmpty($Results.CncDdrawVersion)) {
-        Write-Status -Message "cnc-ddraw: $($Results.CncDdrawVersion) installed" -Type "Success"
+        Write-Status -Message "cnc-ddraw: $($Results.CncDdrawVersion) installed with enhancements" -Type "Success"
+        Write-Host "    Features: 1600x1200 window, OpenGL + sharp upscaling, graphics switcher" -ForegroundColor Gray
     } else {
         Write-Status -Message "cnc-ddraw: Not installed" -Type "Warning"
     }
@@ -166,6 +167,13 @@ function Write-Summary {
     # Overall Status
     if ($Results.Success) {
         Write-Status -Message "Configuration completed successfully!" -Type "Success"
+        Write-Host ""
+        Write-Host "🎮 Next Steps:" -ForegroundColor Yellow
+        Write-Host "1. Launch Army Men 2 from Steam" -ForegroundColor White
+        Write-Host "2. If prompted for DirectPlay, click 'Install this feature' and restart" -ForegroundColor White
+        Write-Host "3. Game should open in 1600x1200 windowed mode with sharp upscaling" -ForegroundColor White
+        Write-Host "4. Use Graphics_Switcher.bat in game folder to try different visual modes" -ForegroundColor White
+        Write-Host "5. Enable Steam FPS counter: Steam → Settings → In-Game → FPS Counter" -ForegroundColor White
     } else {
         Write-Status -Message "Configuration completed with errors." -Type "Error"
     }
@@ -798,15 +806,15 @@ function Set-GameResolution {
         $configContent['Direct3D'] = '0'
         $configContent['Hardware3D'] = '0'
         
-        # Install cnc-ddraw for windowed mode compatibility
-        try {
-            Install-CncDdraw -GamePath $GamePath
-            Write-Verbose "cnc-ddraw installed successfully"
-        }
-        catch {
-            Write-Verbose "cnc-ddraw installation failed: $($_.Exception.Message)"
-            # Continue without cnc-ddraw - fallback to config file approach
-        }
+        # Create enhanced configuration with larger window and upscaling
+        $configContent['ScreenWidth'] = '1600'
+        $configContent['ScreenHeight'] = '1200'
+        $configContent['Windowed'] = '1'
+        $configContent['FullScreen'] = '0'
+        $configContent['ColorDepth'] = '16'
+        $configContent['DirectDraw'] = '0'
+        $configContent['Direct3D'] = '0'
+        $configContent['Hardware3D'] = '0'
 
         # Write config file
         $outputLines = @()
@@ -996,29 +1004,170 @@ function Install-CncDdraw {
             Copy-Item $newDdraw -Destination $GamePath -Force
         }
 
-        # Create cnc-ddraw configuration for windowed mode
+        # Create shaders directory and upscaling shaders
+        $shadersPath = Join-Path $GamePath "Shaders"
+        New-Item -ItemType Directory -Path $shadersPath -Force -ErrorAction SilentlyContinue | Out-Null
+
+        # Create sharp upscaling shader
+        $sharpUpscaleShader = @"
+#version 330
+
+uniform sampler2D rubyTexture;
+uniform vec2 rubyTextureSize;
+uniform vec2 rubyOutputSize;
+
+in vec2 tex_coord;
+out vec4 fragColor;
+
+void main()
+{
+    vec2 texel = 1.0 / rubyTextureSize;
+    vec2 scale = rubyOutputSize / rubyTextureSize;
+    
+    vec2 texel_floored = floor(tex_coord * rubyTextureSize);
+    vec2 s = fract(tex_coord * rubyTextureSize);
+    
+    vec2 region_range = 0.5 - 0.5 / scale;
+    
+    vec2 center_dist = s - 0.5;
+    vec2 f = (center_dist - clamp(center_dist, -region_range, region_range)) * scale + 0.5;
+    
+    vec2 mod_texel = texel_floored + f;
+    
+    fragColor = texture(rubyTexture, (mod_texel + 0.5) * texel);
+}
+"@
+
+        # Create smooth upscaling shader
+        $smoothUpscaleShader = @"
+#version 330
+
+uniform sampler2D rubyTexture;
+uniform vec2 rubyTextureSize;
+
+in vec2 tex_coord;
+out vec4 fragColor;
+
+void main()
+{
+    vec2 texel = 1.0 / rubyTextureSize;
+    vec2 texel_coord = tex_coord * rubyTextureSize;
+    
+    vec2 texel_floored = floor(texel_coord);
+    vec2 s = fract(texel_coord);
+    
+    vec4 c00 = texture(rubyTexture, (texel_floored + vec2(0.0, 0.0)) * texel);
+    vec4 c10 = texture(rubyTexture, (texel_floored + vec2(1.0, 0.0)) * texel);
+    vec4 c01 = texture(rubyTexture, (texel_floored + vec2(0.0, 1.0)) * texel);
+    vec4 c11 = texture(rubyTexture, (texel_floored + vec2(1.0, 1.0)) * texel);
+    
+    vec4 top = mix(c00, c10, smoothstep(0.0, 1.0, s.x));
+    vec4 bottom = mix(c01, c11, smoothstep(0.0, 1.0, s.x));
+    
+    fragColor = mix(top, bottom, smoothstep(0.0, 1.0, s.y));
+}
+"@
+
+        # Save shaders
+        Set-Content -Path (Join-Path $shadersPath "sharp-upscale.glsl") -Value $sharpUpscaleShader -Force -ErrorAction SilentlyContinue
+        Set-Content -Path (Join-Path $shadersPath "smooth-upscale.glsl") -Value $smoothUpscaleShader -Force -ErrorAction SilentlyContinue
+
+        # Create enhanced cnc-ddraw configuration with sharp upscaling
         $ddrawConfig = @"
 [ddraw]
 windowed=true
 fullscreen=false
-width=0
-height=0
+width=1600
+height=1200
 maintas=true
 border=true
 resizable=true
-renderer=gdi
+renderer=opengl
 nonexclusive=true
 adjmouse=true
 singlecpu=true
-vsync=false
+vsync=true
 noactivateapp=false
 savesettings=true
 boxing=false
-shader=
-maxfps=0
+shader=Shaders\sharp-upscale.glsl
+maxfps=60
+showfps=true
 "@
+
+        # Create alternative configurations
+        $noShaderConfig = $ddrawConfig -replace "shader=Shaders\\sharp-upscale\.glsl", "shader="
+        $smoothConfig = $ddrawConfig -replace "sharp-upscale\.glsl", "smooth-upscale.glsl"
+        $pixelPerfectConfig = $ddrawConfig -replace "width=1600`nheight=1200`nmaintas=true", "width=1280`nheight=960`nmaintas=false" -replace "resizable=true", "resizable=false"
+
         $configPath = Join-Path $GamePath "ddraw.ini"
         Set-Content -Path $configPath -Value $ddrawConfig -Force -ErrorAction Stop
+        Set-Content -Path (Join-Path $GamePath "ddraw_noshader.ini") -Value $noShaderConfig -Force -ErrorAction SilentlyContinue
+        Set-Content -Path (Join-Path $GamePath "ddraw_smooth.ini") -Value $smoothConfig -Force -ErrorAction SilentlyContinue
+        Set-Content -Path (Join-Path $GamePath "ddraw_pixelperfect.ini") -Value $pixelPerfectConfig -Force -ErrorAction SilentlyContinue
+
+        # Create graphics switcher
+        $switcherScript = @"
+@echo off
+:start
+cls
+echo.
+echo Army Men 2 Graphics Switcher
+echo ===========================
+echo.
+echo 1 - Original GDI (Safe)
+echo 2 - Enhanced OpenGL
+echo 3 - Sharp Upscaling (Recommended)
+echo 4 - Smooth Upscaling
+echo 5 - Pixel Perfect 2x
+echo.
+set /p "choice=Enter your choice (1-5): "
+
+if "%choice%"=="1" goto option1
+if "%choice%"=="2" goto option2
+if "%choice%"=="3" goto option3
+if "%choice%"=="4" goto option4
+if "%choice%"=="5" goto option5
+goto invalid
+
+:option1
+copy /y "ddraw.ini.original" "ddraw.ini" >nul 2>&1
+echo Applied: Original GDI configuration
+goto end
+
+:option2
+copy /y "ddraw_noshader.ini" "ddraw.ini" >nul 2>&1
+echo Applied: Enhanced OpenGL (no shader)
+goto end
+
+:option3
+copy /y "ddraw_sharp.ini" "ddraw.ini" >nul 2>&1
+echo Applied: Sharp Upscaling (recommended)
+goto end
+
+:option4
+copy /y "ddraw_smooth.ini" "ddraw.ini" >nul 2>&1
+echo Applied: Smooth Upscaling
+goto end
+
+:option5
+copy /y "ddraw_pixelperfect.ini" "ddraw.ini" >nul 2>&1
+echo Applied: Pixel Perfect 2x
+goto end
+
+:invalid
+echo Invalid choice! Please enter 1, 2, 3, 4, or 5
+pause
+goto start
+
+:end
+echo.
+echo Configuration updated successfully!
+echo Launch the game to see the changes.
+echo.
+pause
+"@
+        Set-Content -Path (Join-Path $GamePath "Graphics_Switcher.bat") -Value $switcherScript -Force -ErrorAction SilentlyContinue
 
         # Cleanup
         Remove-Item $downloadPath -Force -ErrorAction SilentlyContinue
@@ -1028,7 +1177,7 @@ maxfps=0
             Success = $true
             Version = $release.tag_name
             ConfigPath = $configPath
-            Message = "cnc-ddraw installed successfully for windowed mode"
+            Message = "cnc-ddraw installed with enhanced graphics: 1600x1200 windowed mode, OpenGL renderer, sharp upscaling shader, and graphics switcher"
         }
     }
     catch {
@@ -1163,9 +1312,10 @@ function Invoke-ArmyMen2Configuration {
         $cncResult = Install-CncDdraw -GamePath $script:ConfigState.GamePath
         $script:ConfigState.CncDdrawVersion = $cncResult.Version
         Write-Status -Message "cnc-ddraw $($cncResult.Version) installed successfully" -Type "Success"
-        Write-Host "    - Windowed mode enabled" -ForegroundColor Gray
-        Write-Host "    - GDI renderer configured" -ForegroundColor Gray
+        Write-Host "    - Windowed mode enabled (1600x1200)" -ForegroundColor Gray
+        Write-Host "    - OpenGL renderer with sharp upscaling" -ForegroundColor Gray
         Write-Host "    - DirectDraw interception active" -ForegroundColor Gray
+        Write-Host "    - Graphics switcher created" -ForegroundColor Gray
     }
     catch {
         $errorMsg = "Failed to install cnc-ddraw: $($_.Exception.Message)"
