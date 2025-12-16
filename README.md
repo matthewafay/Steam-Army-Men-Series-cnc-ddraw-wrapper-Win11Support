@@ -1,11 +1,17 @@
-# Army Men 2 Configuration Tool
+# Army Men Games Configuration Tool
 
-A PowerShell script that automatically configures Army Men 2 (Steam version) for optimal Windows 11 compatibility using cnc-ddraw wrapper.
+A PowerShell script that automatically configures Army Men games (Steam versions) for optimal Windows 11 compatibility using cnc-ddraw wrapper.
+
+## Supported Games
+
+- **Army Men 2** (App ID: 549170)
+- **Army Men: Toys in Space** (App ID: 549180)
 
 ## Overview
 
-This tool automates the complex setup process required to run Army Men 2 on modern Windows systems by:
+This tool automates the complex setup process required to run Army Men games on modern Windows systems by:
 
+- **Game Selection** - Interactive prompt to choose which Army Men game to configure
 - **Auto-detecting** your screen resolution
 - **Locating** your Steam installation and game files
 - **Installing** cnc-ddraw wrapper for windowed mode compatibility
@@ -25,12 +31,20 @@ This tool automates the complex setup process required to run Army Men 2 on mode
 
 ## Quick Start
 
-1. **Prerequisites**: Ensure you have Army Men 2 installed via Steam
-2. **Run the script**: Execute `Configure-ArmyMen2.ps1` in PowerShell
-3. **Follow the output**: The script will display progress and results for each configuration step
+1. **Prerequisites**: Ensure you have one or both Army Men games installed via Steam
+2. **Run the script**: Execute `Configure-ArmyMen.ps1` in PowerShell
+3. **Select your game**: Choose which Army Men game to configure (1 or 2)
+4. **Follow the output**: The script will display progress and results for each configuration step
 
 ```powershell
-.\Configure-ArmyMen2.ps1
+# Interactive mode - prompts for game selection
+.\Configure-ArmyMen.ps1
+
+# Direct mode - configure Army Men 2
+.\Configure-ArmyMen.ps1 -GameChoice 1
+
+# Direct mode - configure Army Men: Toys in Space
+.\Configure-ArmyMen.ps1 -GameChoice 2
 ```
 
 ## What It Does
@@ -46,9 +60,11 @@ This tool automates the complex setup process required to run Army Men 2 on mode
 - Handles both 32-bit and 64-bit registry locations
 
 ### Phase 3: Game Discovery
-- Searches all Steam libraries for Army Men 2 (App ID: 299220)
+- Searches all Steam libraries for the selected Army Men game:
+  - Army Men 2 (App ID: 549170, Executable: ArmyMen2.exe)
+  - Army Men: Toys in Space (App ID: 549180, Executable: ARMYMENTIS.exe)
 - Parses Steam manifest files to locate game installation directory
-- Verifies game executable (`AM2.exe`) exists
+- Verifies game executable exists
 
 ### Phase 4: cnc-ddraw Installation & Graphics Enhancement
 - Downloads the latest cnc-ddraw wrapper from GitHub
@@ -68,7 +84,7 @@ This tool automates the complex setup process required to run Army Men 2 on mode
 
 - **PowerShell 5.1** or later
 - **Windows 10/11** (tested on Windows 11)
-- **Army Men 2** installed via Steam
+- **Army Men games** installed via Steam (Army Men 2 and/or Army Men: Toys in Space)
 - **Internet connection** (to download cnc-ddraw)
 - **DirectPlay Windows feature** (script will prompt for installation if needed)
 
@@ -85,6 +101,8 @@ Invoke-Pester .\tests\Configure-ArmyMen2.Tests.ps1 -Tag "Unit"
 Invoke-Pester .\tests\Configure-ArmyMen2.Tests.ps1 -Tag "Property"
 ```
 
+Note: The test file still references the old script name but tests the same functionality.
+
 ### Test Coverage
 - **Unit Tests**: Individual function testing with mocked dependencies
 - **Property-Based Tests**: Validates behavior across random input ranges
@@ -98,10 +116,11 @@ Invoke-Pester .\tests\Configure-ArmyMen2.Tests.ps1 -Tag "Property"
 - Ensure Steam is installed and has been run at least once
 - Check that Steam appears in Windows "Add or Remove Programs"
 
-**"Army Men 2 not found"**
-- Verify the game is installed via Steam
+**"Army Men [game] not found"**
+- Verify the selected game is installed via Steam
 - Check that the game appears in your Steam library
 - Try running Steam as administrator and verify game files
+- Make sure you selected the correct game number (1 for Army Men 2, 2 for Toys in Space)
 
 **"Failed to detect screen resolution"**
 - Update your display drivers
@@ -155,10 +174,11 @@ The script is organized into modular components:
 ## After Installation
 
 **First Launch:**
-1. Run the configuration script: `.\Configure-ArmyMen2.ps1`
-2. Launch Army Men 2 from Steam
-3. If prompted for DirectPlay, click "Install this feature" and restart
-4. Game opens in enhanced 1600x1200 windowed mode
+1. Run the configuration script: `.\Configure-ArmyMen.ps1`
+2. Select which Army Men game to configure (1 or 2)
+3. Launch the configured game from Steam
+4. If prompted for DirectPlay, click "Install this feature" and restart
+5. Game opens in enhanced 1600x1200 windowed mode
 
 **What You Get:**
 - ✅ **Enhanced Graphics** - Sharp upscaling shader for crisp, clean pixels
@@ -200,7 +220,15 @@ The script creates multiple visual presets you can switch between:
 ## Switching Graphics Modes
 
 Use the **Graphics_Switcher.bat** file in your game directory:
+
+**For Army Men 2:**
 1. Navigate to `C:\Program Files (x86)\Steam\steamapps\common\Army Men II`
+2. Double-click `Graphics_Switcher.bat`
+3. Choose your preferred visual mode (1-5)
+4. Launch the game to see the changes
+
+**For Army Men: Toys in Space:**
+1. Navigate to `C:\Program Files (x86)\Steam\steamapps\common\Army Men - Toys in Space`
 2. Double-click `Graphics_Switcher.bat`
 3. Choose your preferred visual mode (1-5)
 4. Launch the game to see the changes
@@ -216,7 +244,7 @@ Use the **Graphics_Switcher.bat** file in your game directory:
 3. **Restart your computer** (this is required)
 4. Launch the game again
 
-**Why this happens**: Army Men 2 uses DirectPlay for its networking code, even in single-player mode. Windows 11 doesn't include DirectPlay by default, but it's available as an optional feature.
+**Why this happens**: Army Men games use DirectPlay for their networking code, even in single-player mode. Windows 11 doesn't include DirectPlay by default, but it's available as an optional feature.
 
 ### **❓ Game Shows Black Screen in Window**
 **Problem**: Game window opens but shows only black screen
@@ -269,6 +297,27 @@ Use the **Graphics_Switcher.bat** file in your game directory:
 3. Temporarily disable antivirus/firewall
 4. Download cnc-ddraw manually from GitHub (FunkyFr3sh/cnc-ddraw)
 
+## Game Selection
+
+When you run the script without parameters, it will display an interactive menu:
+
+```
+============================================================
+Army Men Games Configuration Tool
+============================================================
+
+Select which Army Men game to configure:
+
+1. Army Men 2
+2. Army Men: Toys in Space
+
+Enter your choice (1-2):
+```
+
+You can also skip the menu by using the `-GameChoice` parameter:
+- `.\Configure-ArmyMen.ps1 -GameChoice 1` for Army Men 2
+- `.\Configure-ArmyMen.ps1 -GameChoice 2` for Army Men: Toys in Space
+
 ## Contributing
 
 This project uses property-based testing to ensure reliability across different system configurations. When contributing:
@@ -280,4 +329,4 @@ This project uses property-based testing to ensure reliability across different 
 
 ## License
 
-This project is provided as-is for educational and personal use. Army Men 2 is a trademark of its respective owners.
+This project is provided as-is for educational and personal use. Army Men games are trademarks of their respective owners.

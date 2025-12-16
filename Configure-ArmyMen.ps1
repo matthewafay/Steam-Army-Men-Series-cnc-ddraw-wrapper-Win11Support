@@ -1,24 +1,56 @@
 #Requires -Version 5.1
 <#
 .SYNOPSIS
-    Configures Army Men 2 (Steam version) for Windows 11 compatibility.
+    Configures Army Men games (Steam versions) for Windows 11 compatibility.
 
 .DESCRIPTION
-    This script automates the configuration of Army Men 2 by:
+    This script automates the configuration of Army Men games by:
+    - Prompting user to select which game to configure
     - Detecting screen resolution
     - Locating the game via Steam
-    - Applying Windows compatibility settings
-    - Configuring game-specific resolution settings
+    - Installing cnc-ddraw with enhanced graphics
+    - Configuring windowed mode with upscaling
+
+.PARAMETER GameChoice
+    Optional parameter to specify which game to configure:
+    1 = Army Men 2
+    2 = Army Men: Toys in Space
 
 .NOTES
-    Requirements: 5.1, 5.2, 5.4
+    Supported Games:
+    - Army Men 2 (App ID: 549170, Executable: ArmyMen2.exe)
+    - Army Men: Toys in Space (App ID: 549180, Executable: ARMYMENTIS.exe)
 #>
 
 [CmdletBinding()]
-param()
+param(
+    [Parameter(Mandatory = $false)]
+    [ValidateRange(1, 2)]
+    [int]$GameChoice
+)
+
+#region Game Definitions
+$script:SupportedGames = @{
+    1 = @{
+        Name = "Army Men 2"
+        AppId = "549170"
+        Executable = "ArmyMen2.exe"
+        InstallDir = "Army Men II"
+        DisplayName = "Army Men 2"
+    }
+    2 = @{
+        Name = "Army Men: Toys in Space"
+        AppId = "549180"
+        Executable = "ARMYMENTIS.exe"
+        InstallDir = "Army Men - Toys in Space"
+        DisplayName = "Army Men: Toys in Space"
+    }
+}
+#endregion
 
 #region Configuration State
 $script:ConfigState = @{
+    SelectedGame = $null
     Resolution = @{
         Width = 0
         Height = 0
@@ -33,6 +65,54 @@ $script:ConfigState = @{
     Errors = @()
     Success = $false
 }
+#endregion
+
+#region Game Selection
+
+<#
+.SYNOPSIS
+    Prompts the user to select which Army Men game to configure.
+
+.OUTPUTS
+    Integer representing the selected game (1 or 2).
+
+.EXAMPLE
+    $gameChoice = Select-ArmyMenGame
+#>
+function Select-ArmyMenGame {
+    [CmdletBinding()]
+    [OutputType([int])]
+    param()
+
+    Write-Host ""
+    Write-Host "=" * 60 -ForegroundColor Green
+    Write-Host "Army Men Games Configuration Tool" -ForegroundColor Green
+    Write-Host "=" * 60 -ForegroundColor Green
+    Write-Host ""
+    Write-Host "Select which Army Men game to configure:" -ForegroundColor Yellow
+    Write-Host ""
+    
+    foreach ($gameId in $script:SupportedGames.Keys | Sort-Object) {
+        $game = $script:SupportedGames[$gameId]
+        Write-Host "$gameId. $($game.DisplayName)" -ForegroundColor White
+    }
+    
+    Write-Host ""
+    
+    do {
+        $choice = Read-Host "Enter your choice (1-2)"
+        if ($choice -match '^\d+$' -and [int]$choice -ge 1 -and [int]$choice -le 2) {
+            $selectedGame = $script:SupportedGames[[int]$choice]
+            Write-Host ""
+            Write-Status -Message "Selected: $($selectedGame.DisplayName)" -Type "Success"
+            Write-Host ""
+            return [int]$choice
+        } else {
+            Write-Host "Invalid choice. Please enter 1 or 2." -ForegroundColor Red
+        }
+    } while ($true)
+}
+
 #endregion
 
 #region Output Functions
@@ -406,34 +486,40 @@ function Get-SteamLibraryFolders {
 
 <#
 .SYNOPSIS
-    Finds the Army Men 2 installation directory in Steam libraries.
+    Finds the selected Army Men game installation directory in Steam libraries.
 
 .DESCRIPTION
-    Searches each Steam library folder for the Army Men 2 app manifest (appmanifest_299220.acf),
+    Searches each Steam library folder for the specified Army Men game app manifest,
     parses the manifest to extract the installation directory, and verifies the game executable exists.
 
 .PARAMETER LibraryFolders
     Array of Steam library folder paths to search.
 
+.PARAMETER GameInfo
+    Hashtable containing game information (AppId, Executable, InstallDir, etc.).
+
 .OUTPUTS
-    String path to the Army Men 2 installation directory.
+    String path to the Army Men game installation directory.
 
 .EXAMPLE
-    $gamePath = Find-ArmyMen2Installation -LibraryFolders @("C:\Program Files (x86)\Steam", "D:\SteamLibrary")
+    $gamePath = Find-ArmyMenInstallation -LibraryFolders @("C:\Program Files (x86)\Steam") -GameInfo $gameInfo
 
 .NOTES
     Requirements: 2.3, 2.4, 2.5
-    Feature: army-men-2-config, Property 3: Game search finds manifest when present
+    Feature: army-men-config, Property 3: Game search finds manifest when present
 #>
-function Find-ArmyMen2Installation {
+function Find-ArmyMenInstallation {
     [CmdletBinding()]
     [OutputType([string])]
     param(
         [Parameter(Mandatory = $true)]
-        [string[]]$LibraryFolders
+        [string[]]$LibraryFolders,
+        
+        [Parameter(Mandatory = $true)]
+        [hashtable]$GameInfo
     )
 
-    $appId = "549170"
+    $appId = $GameInfo.AppId
     $manifestFileName = "appmanifest_$appId.acf"
     $searchedPaths = @()
 
@@ -442,7 +528,7 @@ function Find-ArmyMen2Installation {
         $manifestPath = Join-Path -Path $steamAppsPath -ChildPath $manifestFileName
         $searchedPaths += $steamAppsPath
 
-        Write-Verbose "Searching for Army Men 2 manifest at: $manifestPath"
+        Write-Verbose "Searching for $($GameInfo.DisplayName) manifest at: $manifestPath"
 
         if (Test-Path $manifestPath) {
             try {
@@ -465,7 +551,7 @@ function Find-ArmyMen2Installation {
                     # Verify game directory exists
                     if (Test-Path $gamePath) {
                         # Verify game executable exists
-                        $executablePath = Join-Path -Path $gamePath -ChildPath "ArmyMen2.exe"
+                        $executablePath = Join-Path -Path $gamePath -ChildPath $GameInfo.Executable
                         
                         if (Test-Path $executablePath) {
                             Write-Verbose "Game executable found at: $executablePath"
@@ -494,7 +580,7 @@ function Find-ArmyMen2Installation {
 
     # Game not found in any library
     $searchedPathsList = $searchedPaths -join ", "
-    throw "Army Men 2 (App ID $appId) not found. Searched libraries: $searchedPathsList"
+    throw "$($GameInfo.DisplayName) (App ID $appId) not found. Searched libraries: $searchedPathsList"
 }
 
 #endregion
@@ -1192,24 +1278,32 @@ pause
 
 <#
 .SYNOPSIS
-    Main execution flow for configuring Army Men 2.
+    Main execution flow for configuring Army Men games.
 
 .DESCRIPTION
     Orchestrates the complete configuration process:
+    0. Select which game to configure
     1. Detect screen resolution
     2. Locate Steam installation
-    3. Find Army Men 2 game
-    4. Apply compatibility settings
-    5. Configure game resolution
+    3. Find selected Army Men game
+    4. Install cnc-ddraw with enhancements
+    5. Configure game with windowed mode and upscaling
     6. Display summary
+
+.PARAMETER GameChoice
+    Optional parameter to specify which game to configure (1 or 2).
 
 .NOTES
     Requirements: 5.1, 5.2, 5.3, 5.4
-    Feature: army-men-2-config, Property 6: Status messages generated for each phase
+    Feature: army-men-config, Property 6: Status messages generated for each phase
 #>
-function Invoke-ArmyMen2Configuration {
+function Invoke-ArmyMenConfiguration {
     [CmdletBinding()]
-    param()
+    param(
+        [Parameter(Mandatory = $false)]
+        [ValidateRange(1, 2)]
+        [int]$GameChoice
+    )
 
     # Initialize configuration state
     $script:ConfigState = @{
@@ -1228,6 +1322,16 @@ function Invoke-ArmyMen2Configuration {
     }
 
     $allStepsSucceeded = $true
+
+    #region Phase 0: Game Selection
+    if (-not $GameChoice) {
+        $GameChoice = Select-ArmyMenGame
+    }
+    
+    $script:ConfigState.SelectedGame = $script:SupportedGames[$GameChoice]
+    Write-Status -Message "Configuring: $($script:ConfigState.SelectedGame.DisplayName)" -Type "Info"
+    Write-Host ""
+    #endregion
 
     #region Phase 1: Resolution Detection
     Write-Status -Message "Detecting screen resolution..." -Type "Info"
@@ -1287,16 +1391,17 @@ function Invoke-ArmyMen2Configuration {
     #endregion
 
     #region Phase 3: Game Search
-    Write-Status -Message "Searching for Army Men 2 installation..." -Type "Info"
+    $selectedGame = $script:ConfigState.SelectedGame
+    Write-Status -Message "Searching for $($selectedGame.DisplayName) installation..." -Type "Info"
     
     try {
-        $gamePath = Find-ArmyMen2Installation -LibraryFolders $libraryFolders
+        $gamePath = Find-ArmyMenInstallation -LibraryFolders $libraryFolders -GameInfo $selectedGame
         $script:ConfigState.GamePath = $gamePath
-        $script:ConfigState.ExecutablePath = Join-Path -Path $gamePath -ChildPath "AM2.exe"
-        Write-Status -Message "Army Men 2 found at: $gamePath" -Type "Success"
+        $script:ConfigState.ExecutablePath = Join-Path -Path $gamePath -ChildPath $selectedGame.Executable
+        Write-Status -Message "$($selectedGame.DisplayName) found at: $gamePath" -Type "Success"
     }
     catch {
-        $errorMsg = "Failed to find Army Men 2: $($_.Exception.Message)"
+        $errorMsg = "Failed to find $($selectedGame.DisplayName): $($_.Exception.Message)"
         $script:ConfigState.Errors += $errorMsg
         Write-Status -Message $errorMsg -Type "Error"
         $allStepsSucceeded = $false
@@ -1354,7 +1459,7 @@ function Invoke-ArmyMen2Configuration {
 
 # Execute main configuration when script is run directly (not dot-sourced for testing)
 if ($MyInvocation.InvocationName -ne '.') {
-    Invoke-ArmyMen2Configuration
+    Invoke-ArmyMenConfiguration -GameChoice $GameChoice
 }
 
 #endregion
