@@ -6,7 +6,7 @@ A PowerShell script that automatically configures Army Men games (Steam versions
 
 - **Army Men** (App ID: 549160)
 - **Army Men II** (App ID: 549170)
-- **Army Men RTS** (App ID: 58300)
+- **Army Men RTS** (App ID: 694500)
 - **Army Men: Toys in Space** (App ID: 549180)
 
 ## Overview
@@ -60,6 +60,44 @@ This tool automates the complex setup process required to run Army Men games on 
 .\Configure-ArmyMen.ps1 -GameChoice 4
 ```
 
+## Graphics Wrappers
+
+This tool uses different graphics wrappers depending on the game's requirements:
+
+### cnc-ddraw (Army Men, Army Men II, Toys in Space)
+
+**cnc-ddraw** is a DirectDraw wrapper that intercepts legacy DirectDraw API calls and translates them to modern OpenGL or Direct3D. These older Army Men games use DirectDraw for rendering, which doesn't work well on modern Windows.
+
+**What it does:**
+- Intercepts DirectDraw calls from the game
+- Renders using modern OpenGL with shader support
+- Enables windowed mode with proper scaling
+- Provides upscaling shaders for sharper graphics
+- Prevents screen resolution changes
+
+**Files installed:**
+- `ddraw.dll` - The wrapper DLL that intercepts DirectDraw calls
+- `ddraw.ini` - Configuration file for windowed mode, resolution, shaders
+- `Shaders/` - GLSL shader files for upscaling effects
+
+### dgVoodoo2 (Army Men RTS)
+
+**dgVoodoo2** is a DirectX wrapper that translates DirectX 8.0 calls to DirectX 11. Army Men RTS uses DirectX 8.0, which has hardware detection issues on modern systems (the infamous "DirectX 8.0 compatible graphics card was not found" error).
+
+**What it does:**
+- Intercepts DirectX 8.0 API calls
+- Translates them to DirectX 11 for modern GPU compatibility
+- Enables windowed mode independent of the game
+- Provides anti-aliasing options (up to 8x MSAA)
+- Bypasses the DirectX 8.0 hardware check that fails on modern GPUs
+
+**Files installed:**
+- `D3D8.dll` - DirectX 8.0 wrapper
+- `D3DImm.dll` - DirectX Immediate Mode wrapper
+- `DDraw.dll` - DirectDraw wrapper (for compatibility)
+- `dgVoodoo.conf` - Configuration file
+- `dgVoodooCpl.exe` - Control panel for adjusting settings
+
 ## What It Does
 
 ### Phase 1: Resolution Detection
@@ -76,18 +114,26 @@ This tool automates the complex setup process required to run Army Men games on 
 - Searches all Steam libraries for the selected Army Men game:
   - Army Men (App ID: 549160, Executable: Armymen.exe)
   - Army Men II (App ID: 549170, Executable: ArmyMen2.exe)
-  - Army Men RTS (App ID: 58300, Executable: amrts.exe)
+  - Army Men RTS (App ID: 694500, Executable: amrts.exe)
   - Army Men: Toys in Space (App ID: 549180, Executable: ARMYMENTIS.exe)
 - Parses Steam manifest files to locate game installation directory
 - Verifies game executable exists
 
-### Phase 4: cnc-ddraw Installation & Graphics Enhancement
+### Phase 4: Graphics Wrapper Installation
+**For Army Men, Army Men II, and Toys in Space:**
 - Downloads the latest cnc-ddraw wrapper from GitHub
 - Backs up the original ddraw.dll file
 - Installs cnc-ddraw with enhanced windowed mode configuration
 - Creates upscaling shaders (sharp and smooth) for better graphics
 - Configures OpenGL renderer with VSync for optimal performance
 - Sets up 1600x1200 windowed mode for comfortable gameplay
+
+**For Army Men RTS:**
+- Downloads dgVoodoo2 from the official site
+- Installs DirectX 8.0 wrapper DLLs (D3D8.dll, D3DImm.dll, DDraw.dll)
+- Configures windowed mode with 8x anti-aliasing
+- Disables the dgVoodoo watermark
+- Installs dgVoodooCpl.exe for manual configuration if needed
 
 ### Phase 5: Graphics Configuration System
 - Creates multiple visual presets (sharp, smooth, pixel-perfect, original)
@@ -327,6 +373,49 @@ Use the **Graphics_Switcher.bat** file in your game directory:
 2. Run PowerShell as Administrator
 3. Temporarily disable antivirus/firewall
 4. Download cnc-ddraw manually from GitHub (FunkyFr3sh/cnc-ddraw)
+
+### **❓ Army Men RTS: "DirectX 8.0 compatible graphics card was not found"**
+**Problem**: Army Men RTS shows this error on startup
+
+**Why this happens**: Army Men RTS uses DirectX 8.0 and performs a hardware check that fails on modern GPUs. The script installs dgVoodoo2 to intercept these calls.
+
+**Solutions**:
+1. Run the configuration script - it automatically installs dgVoodoo2
+2. If the error persists, verify `D3D8.dll` exists in the game folder
+3. Check that dgVoodoo.conf was created in the game folder
+
+### **❓ Army Men RTS: Still Fullscreen After Configuration**
+**Problem**: Army Men RTS launches in fullscreen instead of windowed mode
+
+**Solutions**:
+1. Run `dgVoodooCpl.exe` from the game folder (`C:\Program Files (x86)\Steam\steamapps\common\Army Men RTS`)
+2. **Important**: Change the "Config folder" dropdown to the game folder (click the `.\` button or Add the game path)
+3. Go to the **General** tab and select **"Windowed"** under Appearance
+4. Go to the **DirectX** tab and **uncheck** "Application controlled fullscreen/windowed state"
+5. Click **Apply**
+
+### **❓ Army Men RTS: dgVoodoo Watermark Visible**
+**Problem**: "dgVoodoo" watermark appears in the bottom-right corner
+
+**Solutions**:
+1. Run `dgVoodooCpl.exe` from the game folder
+2. Go to the **DirectX** tab
+3. **Uncheck** "dgVoodoo Watermark" at the bottom
+4. Click **Apply**
+
+### **❓ Army Men RTS: Adjusting Graphics Settings**
+**Problem**: Want to change resolution, anti-aliasing, or other settings
+
+**Solutions**:
+1. Run `dgVoodooCpl.exe` from the game folder
+2. **DirectX tab** settings:
+   - **Resolution**: Change from "Unforced" to a specific resolution
+   - **Antialiasing (MSAA)**: Set to 2x, 4x, or 8x for smoother edges
+   - **dgVoodoo Watermark**: Uncheck to hide the watermark
+3. **General tab** settings:
+   - **Appearance**: Windowed or Full Screen
+   - **Scaling mode**: How the image is scaled (centered, stretched, etc.)
+4. Click **Apply** after making changes
 
 ## Game Selection
 

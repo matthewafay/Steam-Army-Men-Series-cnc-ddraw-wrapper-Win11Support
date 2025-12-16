@@ -22,7 +22,7 @@
     Supported Games:
     - Army Men (App ID: 549160, Executable: Armymen.exe)
     - Army Men II (App ID: 549170, Executable: ArmyMen2.exe)
-    - Army Men RTS (App ID: 58300, Executable: amrts.exe)
+    - Army Men RTS (App ID: 694500, Executable: amrts.exe)
     - Army Men: Toys in Space (App ID: 549180, Executable: ARMYMENTIS.exe)
 #>
 
@@ -51,7 +51,7 @@ $script:SupportedGames = @{
     }
     3 = @{
         Name = "Army Men RTS"
-        AppId = "58300"
+        AppId = "694500"
         Executable = "amrts.exe"
         InstallDir = "Army Men RTS"
         DisplayName = "Army Men RTS"
@@ -1152,7 +1152,10 @@ function Install-CncDdraw {
     [OutputType([PSCustomObject])]
     param(
         [Parameter(Mandatory = $true)]
-        [string]$GamePath
+        [string]$GamePath,
+        
+        [Parameter(Mandatory = $false)]
+        [hashtable]$GameInfo
     )
 
     try {
@@ -1258,8 +1261,39 @@ void main()
         Set-Content -Path (Join-Path $shadersPath "sharp-upscale.glsl") -Value $sharpUpscaleShader -Force -ErrorAction SilentlyContinue
         Set-Content -Path (Join-Path $shadersPath "smooth-upscale.glsl") -Value $smoothUpscaleShader -Force -ErrorAction SilentlyContinue
 
-        # Create enhanced cnc-ddraw configuration with sharp upscaling
-        $ddrawConfig = @"
+        # Create enhanced cnc-ddraw configuration - different for Army Men RTS
+        if ($GameInfo -and $GameInfo.Name -eq "Army Men RTS") {
+            # Army Men RTS specific configuration for DirectX 8.0 compatibility
+            $ddrawConfig = @"
+[ddraw]
+windowed=true
+fullscreen=false
+width=1600
+height=1200
+maintas=true
+border=true
+resizable=true
+renderer=gdi
+nonexclusive=true
+adjmouse=true
+singlecpu=true
+vsync=false
+noactivateapp=false
+savesettings=true
+boxing=false
+maxfps=60
+showfps=true
+no_compat_warning=true
+hook_d3d8=true
+d3d8_device=0
+d3d8to9=true
+d3d8_rgb_mode=true
+d3d8_windowed=true
+force_d3d8_windowed=true
+"@
+        } else {
+            # Standard configuration for other Army Men games
+            $ddrawConfig = @"
 [ddraw]
 windowed=true
 fullscreen=false
@@ -1281,11 +1315,20 @@ maxfps=60
 showfps=true
 no_compat_warning=true
 "@
+        }
 
         # Create alternative configurations (all include no_compat_warning=true)
-        $noShaderConfig = $ddrawConfig -replace "shader=Shaders\\sharp-upscale\.glsl", "shader="
-        $smoothConfig = $ddrawConfig -replace "sharp-upscale\.glsl", "smooth-upscale.glsl"
-        $pixelPerfectConfig = $ddrawConfig -replace "width=1600`nheight=1200`nmaintas=true", "width=1280`nheight=960`nmaintas=false" -replace "resizable=true", "resizable=false"
+        if ($GameInfo -and $GameInfo.Name -eq "Army Men RTS") {
+            # Army Men RTS alternative configs (no shaders, uses GDI renderer)
+            $noShaderConfig = $ddrawConfig -replace "renderer=gdi", "renderer=auto"
+            $smoothConfig = $ddrawConfig -replace "renderer=gdi", "renderer=opengl"
+            $pixelPerfectConfig = $ddrawConfig -replace "width=1600`nheight=1200`nmaintas=true", "width=1280`nheight=960`nmaintas=false" -replace "resizable=true", "resizable=false"
+        } else {
+            # Standard alternative configs with shaders
+            $noShaderConfig = $ddrawConfig -replace "shader=Shaders\\sharp-upscale\.glsl", "shader="
+            $smoothConfig = $ddrawConfig -replace "sharp-upscale\.glsl", "smooth-upscale.glsl"
+            $pixelPerfectConfig = $ddrawConfig -replace "width=1600`nheight=1200`nmaintas=true", "width=1280`nheight=960`nmaintas=false" -replace "resizable=true", "resizable=false"
+        }
 
         $configPath = Join-Path $GamePath "ddraw.ini"
         Set-Content -Path $configPath -Value $ddrawConfig -Force -ErrorAction Stop
@@ -1294,13 +1337,71 @@ no_compat_warning=true
         Set-Content -Path (Join-Path $GamePath "ddraw_pixelperfect.ini") -Value $pixelPerfectConfig -Force -ErrorAction SilentlyContinue
 
         # Create graphics switcher
-        $switcherScript = @"
+        if ($GameInfo -and $GameInfo.Name -eq "Army Men RTS") {
+            $switcherScript = @"
 @echo off
 :start
 cls
 echo.
-echo Army Men 2 Graphics Switcher
-echo ===========================
+echo Army Men RTS Graphics Switcher
+echo =============================
+echo.
+echo 1 - GDI Renderer (Recommended for RTS)
+echo 2 - Auto Renderer
+echo 3 - OpenGL Renderer (Experimental)
+echo 4 - Pixel Perfect 2x
+echo.
+set /p "choice=Enter your choice (1-4): "
+
+            if "%choice%"=="1" goto option1
+            if "%choice%"=="2" goto option2
+            if "%choice%"=="3" goto option3
+            if "%choice%"=="4" goto option4
+            goto invalid
+
+:option1
+copy /y "ddraw.ini.original" "ddraw.ini" >nul 2>&1
+echo Applied: Original configuration
+goto end
+
+:option2
+copy /y "ddraw_noshader.ini" "ddraw.ini" >nul 2>&1
+echo Applied: Alternative renderer
+goto end
+
+:option3
+copy /y "ddraw_smooth.ini" "ddraw.ini" >nul 2>&1
+echo Applied: Enhanced configuration
+goto end
+
+:option4
+copy /y "ddraw_pixelperfect.ini" "ddraw.ini" >nul 2>&1
+echo Applied: Pixel Perfect 2x
+goto end
+
+
+
+            :invalid
+            echo Invalid choice! Please enter 1, 2, 3, or 4
+            pause
+            goto start
+
+:end
+echo.
+echo Configuration updated successfully!
+echo Launch the game to see the changes.
+echo.
+pause
+"@
+        } else {
+            # Standard Army Men games switcher script
+            $switcherScript = @"
+@echo off
+:start
+cls
+echo.
+echo Army Men Graphics Switcher
+echo =========================
 echo.
 echo 1 - Original GDI (Safe)
 echo 2 - Enhanced OpenGL
@@ -1354,6 +1455,7 @@ echo Launch the game to see the changes.
 echo.
 pause
 "@
+        }
         Set-Content -Path (Join-Path $GamePath "Graphics_Switcher.bat") -Value $switcherScript -Force -ErrorAction SilentlyContinue
 
         # Cleanup
@@ -1369,6 +1471,188 @@ pause
     }
     catch {
         throw "Failed to install cnc-ddraw: $($_.Exception.Message)"
+    }
+}
+
+#endregion
+
+#region DirectX 8.0 Compatibility Module
+
+<#
+.SYNOPSIS
+    Installs dgVoodoo2 for DirectX 8.0 compatibility with Army Men RTS.
+
+.DESCRIPTION
+    Downloads and configures dgVoodoo2 to provide DirectX 8.0 to DirectX 11 translation
+    for better compatibility with modern systems.
+
+.PARAMETER GamePath
+    The path to the Army Men RTS installation directory.
+
+.OUTPUTS
+    PSCustomObject with installation results.
+
+.EXAMPLE
+    Install-DgVoodoo2 -GamePath "C:\Steam\steamapps\common\Army Men RTS"
+#>
+function Install-DgVoodoo2 {
+    [CmdletBinding()]
+    [OutputType([PSCustomObject])]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$GamePath
+    )
+
+    try {
+        Write-Status -Message "Installing dgVoodoo2 for DirectX 8.0 compatibility..." -Type "Info"
+        
+        # dgVoodoo2 download URL (official site - latest version 2.86.4)
+        $dgVoodooUrl = "https://dege.fw.hu/dgVoodoo2/bin/dgVoodoo2_86_4.zip"
+        $downloadPath = Join-Path $env:TEMP "dgVoodoo2.zip"
+        $extractPath = Join-Path $env:TEMP "dgVoodoo2"
+        
+        # Download dgVoodoo2
+        Write-Status -Message "Downloading dgVoodoo2 v2.86.4 from official site..." -Type "Info"
+        Invoke-WebRequest -Uri $dgVoodooUrl -OutFile $downloadPath -UseBasicParsing -ErrorAction Stop
+        Write-Verbose "Downloaded dgVoodoo2"
+
+        # Extract
+        if (Test-Path $extractPath) { Remove-Item $extractPath -Recurse -Force }
+        Expand-Archive -Path $downloadPath -DestinationPath $extractPath -Force -ErrorAction Stop
+
+        # Copy DirectX 8.0 wrapper files to game directory
+        $dgVoodooFiles = @(
+            "MS\x86\D3D8.dll",
+            "MS\x86\DDraw.dll",
+            "MS\x86\D3DImm.dll",
+            "dgVoodooCpl.exe"
+        )
+
+        foreach ($file in $dgVoodooFiles) {
+            $sourcePath = Join-Path $extractPath $file
+            $fileName = Split-Path $file -Leaf
+            $destPath = Join-Path $GamePath $fileName
+            
+            if (Test-Path $sourcePath) {
+                Copy-Item $sourcePath -Destination $destPath -Force
+                Write-Verbose "Copied $fileName to game directory"
+            }
+        }
+
+        # Create dgVoodoo2 configuration for Army Men RTS
+        # Key settings: windowed mode, no watermark, 8x AA, app-controlled resolution
+        $dgVoodooConfig = @"
+;==========================================================================
+; dgVoodoo2 config for Army Men RTS - Generated by Configure-ArmyMen.ps1
+;==========================================================================
+Version                              = 0x286
+
+[General]
+OutputAPI                            = bestavailable
+Adapters                             = all
+FullScreenOutput                     = default
+FullScreenMode                       = false
+ScalingMode                          = stretched_ar
+ProgressiveScanlineOrder             = false
+EnumerateRefreshRates                = false
+Brightness                           = 100
+Color                                = 100
+Contrast                             = 100
+InheritColorProfileInFullScreenMode  = true
+KeepWindowAspectRatio                = true
+CaptureMouse                         = true
+CenterAppWindow                      = true
+DisableScreenSaver                   = false
+
+[GeneralExt]
+DesktopResolution                    =
+DesktopBitDepth                      =
+DeframerSize                         = 1
+ImageScaleFactor                     = 1
+CursorScaleFactor                    = 0
+DisplayROI                           =
+Resampling                           = bilinear
+PresentationModel                    = auto
+ColorSpace                           = appdriven
+FreeMouse                            = false
+WindowedAttributes                   =
+FullscreenAttributes                 =
+FPSLimit                             = 0
+
+[Glide]
+VideoCard                            = voodoo_2
+OnboardRAM                           = 8
+MemorySizeOfTMU                      = 4096
+NumberOfTMUs                         = 2
+TMUFiltering                         = appdriven
+DisableMipmapping                    = false
+Resolution                           = unforced
+Antialiasing                         = appdriven
+EnableGlideGammaRamp                 = true
+ForceVerticalSync                    = false
+ForceEmulatingTruePCIAccess          = false
+PointcastPalette                     = false
+EnableInactiveAppState               = false
+
+[GlideExt]
+DitheringEffect                      = pure32bit
+Dithering                            = forcealways
+DitherOrderedMatrixSizeScale         = 0
+
+[DirectX]
+DisableAndPassThru                   = false
+VideoCard                            = internal3D
+VRAM                                 = 256
+Filtering                            = appdriven
+Mipmapping                           = appdriven
+KeepFilterIfPointSampled             = false
+Resolution                           = unforced
+Antialiasing                         = 8x
+AppControlledScreenMode              = false
+DisableAltEnterToToggleScreenMode    = false
+Bilinear2DOperations                 = false
+PhongShadingWhenPossible             = false
+ForceVerticalSync                    = false
+dgVoodooWatermark                    = false
+FastVideoMemoryAccess                = false
+DisableD3DTnLDevice                  = false
+
+[DirectXExt]
+AdapterIDType                        =
+VendorID                             =
+DeviceID                             =
+SubsystemID                          =
+RevisionID                           =
+DefaultEnumeratedResolutions         = all
+ExtraEnumeratedResolutions           =
+EnumeratedResolutionBitdepths        = all
+DitheringEffect                      = high_quality
+Dithering                            = forcealways
+DitherOrderedMatrixSizeScale         = 0
+DepthBuffersBitDepth                 = appdriven
+Default3DRenderFormat                = auto
+MaxVSConstRegisters                  = 256
+"@
+
+        $configPath = Join-Path $GamePath "dgVoodoo.conf"
+        Set-Content -Path $configPath -Value $dgVoodooConfig -Force -ErrorAction Stop
+
+        # Cleanup
+        Remove-Item $downloadPath -Force -ErrorAction SilentlyContinue
+        Remove-Item $extractPath -Recurse -Force -ErrorAction SilentlyContinue
+
+        return [PSCustomObject]@{
+            Success = $true
+            ConfigPath = $configPath
+            Message = "dgVoodoo2 installed for DirectX 8.0 compatibility"
+        }
+    }
+    catch {
+        Write-Verbose "dgVoodoo2 installation failed: $($_.Exception.Message)"
+        return [PSCustomObject]@{
+            Success = $false
+            Message = "dgVoodoo2 installation failed - using cnc-ddraw fallback"
+        }
     }
 }
 
@@ -1514,15 +1798,6 @@ function Invoke-ArmyMenConfiguration {
         Write-Status -Message "Using Steam installation at: $steamPath" -Type "Success"
         Write-Status -Message "Using $($libraryFolders.Count) Steam library folder(s)" -Type "Success"
     }
-    catch {
-        $errorMsg = "Failed to parse Steam libraries: $($_.Exception.Message)"
-        $script:ConfigState.Errors += $errorMsg
-        Write-Status -Message $errorMsg -Type "Error"
-        $allStepsSucceeded = $false
-        # Library parsing is critical - cannot continue without it
-        Write-Summary -Results $script:ConfigState
-        return $script:ConfigState
-    }
     #endregion
 
     #region Phase 4: Game Search
@@ -1546,28 +1821,86 @@ function Invoke-ArmyMenConfiguration {
     }
     #endregion
 
-    #region Phase 5: cnc-ddraw Installation
-    Write-Status -Message "Installing cnc-ddraw for windowed mode compatibility..." -Type "Info"
-    
-    try {
-        $cncResult = Install-CncDdraw -GamePath $script:ConfigState.GamePath
-        $script:ConfigState.CncDdrawVersion = $cncResult.Version
-        Write-Status -Message "cnc-ddraw $($cncResult.Version) installed successfully" -Type "Success"
-        Write-Host "    - Windowed mode enabled (1600x1200)" -ForegroundColor Gray
-        Write-Host "    - OpenGL renderer with sharp upscaling" -ForegroundColor Gray
-        Write-Host "    - DirectDraw interception active" -ForegroundColor Gray
-        Write-Host "    - Graphics switcher created" -ForegroundColor Gray
-    }
-    catch {
-        $errorMsg = "Failed to install cnc-ddraw: $($_.Exception.Message)"
-        $script:ConfigState.Errors += $errorMsg
-        Write-Status -Message $errorMsg -Type "Error"
-        $allStepsSucceeded = $false
-        # Continue with remaining steps even if this fails
+    #region Phase 5: Graphics Compatibility Installation
+    if ($script:ConfigState.SelectedGame.Name -eq "Army Men RTS") {
+        # Try dgVoodoo2 first for DirectX 8.0 compatibility
+        Write-Status -Message "Installing DirectX 8.0 compatibility layer..." -Type "Info"
+        
+        try {
+            $dgVoodooResult = Install-DgVoodoo2 -GamePath $script:ConfigState.GamePath
+            if ($dgVoodooResult.Success) {
+                Write-Status -Message "dgVoodoo2 installed for DirectX 8.0 compatibility" -Type "Success"
+                Write-Host "    - DirectX 8.0 to DirectX 11 translation" -ForegroundColor Gray
+                Write-Host "    - 1600x1200 windowed mode" -ForegroundColor Gray
+                Write-Host "    - Modern graphics driver compatibility" -ForegroundColor Gray
+            } else {
+                throw "dgVoodoo2 installation failed"
+            }
+        }
+        catch {
+            Write-Status -Message "dgVoodoo2 failed, trying cnc-ddraw fallback..." -Type "Warning"
+            
+            try {
+                $cncResult = Install-CncDdraw -GamePath $script:ConfigState.GamePath -GameInfo $script:ConfigState.SelectedGame
+                $script:ConfigState.CncDdrawVersion = $cncResult.Version
+                Write-Status -Message "cnc-ddraw $($cncResult.Version) installed as fallback" -Type "Success"
+                Write-Host "    - GDI renderer for DirectX 8.0 compatibility" -ForegroundColor Gray
+                Write-Host "    - Windowed mode enabled (1600x1200)" -ForegroundColor Gray
+                Write-Host "    - Graphics switcher created" -ForegroundColor Gray
+            }
+            catch {
+                $errorMsg = "Failed to install graphics compatibility: $($_.Exception.Message)"
+                $script:ConfigState.Errors += $errorMsg
+                Write-Status -Message $errorMsg -Type "Error"
+                $allStepsSucceeded = $false
+            }
+        }
+    } else {
+        # Standard cnc-ddraw installation for other Army Men games
+        Write-Status -Message "Installing cnc-ddraw for windowed mode compatibility..." -Type "Info"
+        
+        try {
+            $cncResult = Install-CncDdraw -GamePath $script:ConfigState.GamePath -GameInfo $script:ConfigState.SelectedGame
+            $script:ConfigState.CncDdrawVersion = $cncResult.Version
+            Write-Status -Message "cnc-ddraw $($cncResult.Version) installed successfully" -Type "Success"
+            Write-Host "    - Windowed mode enabled (1600x1200)" -ForegroundColor Gray
+            Write-Host "    - OpenGL renderer with sharp upscaling" -ForegroundColor Gray
+            Write-Host "    - DirectDraw interception active" -ForegroundColor Gray
+            Write-Host "    - Graphics switcher created" -ForegroundColor Gray
+        }
+        catch {
+            $errorMsg = "Failed to install cnc-ddraw: $($_.Exception.Message)"
+            $script:ConfigState.Errors += $errorMsg
+            Write-Status -Message $errorMsg -Type "Error"
+            $allStepsSucceeded = $false
+            # Continue with remaining steps even if this fails
+        }
     }
     #endregion
 
-    #region Phase 6: Game Configuration
+    #region Phase 6: Compatibility Settings (for Army Men RTS)
+    if ($script:ConfigState.SelectedGame.Name -eq "Army Men RTS") {
+        Write-Status -Message "Applying DirectX 8.0 compatibility settings..." -Type "Info"
+        
+        try {
+            $compatResult = Set-CompatibilitySettings -ExecutablePath $script:ConfigState.ExecutablePath
+            $script:ConfigState.CompatibilityFlags = $compatResult.CompatibilityFlags
+            Write-Status -Message "DirectX 8.0 compatibility settings applied" -Type "Success"
+            Write-Host "    - Windows XP SP3 compatibility mode" -ForegroundColor Gray
+            Write-Host "    - Run as Administrator" -ForegroundColor Gray
+            Write-Host "    - Disable fullscreen optimizations" -ForegroundColor Gray
+            Write-Host "    - 16-bit color mode" -ForegroundColor Gray
+        }
+        catch {
+            $errorMsg = "Failed to apply compatibility settings: $($_.Exception.Message)"
+            $script:ConfigState.Errors += $errorMsg
+            Write-Status -Message $errorMsg -Type "Warning"
+            # Continue even if this fails
+        }
+    }
+    #endregion
+
+    #region Phase 7: Game Configuration
     Write-Status -Message "Configuring game resolution settings..." -Type "Info"
     
     try {
@@ -1584,7 +1917,7 @@ function Invoke-ArmyMenConfiguration {
     }
     #endregion
 
-    #region Phase 7: Summary
+    #region Phase 8: Summary
     $script:ConfigState.Success = $allStepsSucceeded
     Write-Summary -Results $script:ConfigState
     #endregion
