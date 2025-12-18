@@ -64,7 +64,7 @@ This tool automates the complex setup process required to run Army Men games on 
 
 This tool uses different graphics wrappers depending on the game's requirements:
 
-### cnc-ddraw (Army Men, Army Men II, Toys in Space)
+### cnc-ddraw (Army Men, Toys in Space)
 
 **cnc-ddraw** is a DirectDraw wrapper that intercepts legacy DirectDraw API calls and translates them to modern OpenGL or Direct3D. These older Army Men games use DirectDraw for rendering, which doesn't work well on modern Windows.
 
@@ -80,9 +80,9 @@ This tool uses different graphics wrappers depending on the game's requirements:
 - `ddraw.ini` - Configuration file for windowed mode, resolution, shaders
 - `Shaders/` - GLSL shader files for upscaling effects
 
-### dgVoodoo2 (Army Men RTS)
+### dgVoodoo2 (Army Men II, Army Men RTS)
 
-**dgVoodoo2** is a DirectX wrapper that translates DirectX 8.0 calls to DirectX 11. Army Men RTS uses DirectX 8.0, which has hardware detection issues on modern systems (the infamous "DirectX 8.0 compatible graphics card was not found" error).
+**dgVoodoo2** is a DirectX/DirectDraw wrapper that translates legacy graphics calls to DirectX 11. Army Men II and Army Men RTS have issues on modern systems - Army Men II has vehicle movement problems (tanks only rotate, boats clip through terrain) and Army Men RTS has the infamous "DirectX 8.0 compatible graphics card was not found" error. dgVoodoo2 simulates older graphics hardware to fix these issues.
 
 **What it does:**
 - Intercepts DirectX 8.0 API calls
@@ -120,7 +120,7 @@ This tool uses different graphics wrappers depending on the game's requirements:
 - Verifies game executable exists
 
 ### Phase 4: Graphics Wrapper Installation
-**For Army Men, Army Men II, and Toys in Space:**
+**For Army Men and Toys in Space:**
 - Downloads the latest cnc-ddraw wrapper from GitHub
 - Backs up the original ddraw.dll file
 - Installs cnc-ddraw with enhanced windowed mode configuration
@@ -128,10 +128,11 @@ This tool uses different graphics wrappers depending on the game's requirements:
 - Configures OpenGL renderer with VSync for optimal performance
 - Sets up 1600x1200 windowed mode for comfortable gameplay
 
-**For Army Men RTS:**
+**For Army Men II and Army Men RTS:**
 - Downloads dgVoodoo2 from the official site
-- Installs DirectX 8.0 wrapper DLLs (D3D8.dll, D3DImm.dll, DDraw.dll)
-- Configures windowed mode with 8x anti-aliasing
+- Installs DirectDraw/DirectX wrapper DLLs (DDraw.dll, D3DImm.dll, D3D8.dll)
+- Simulates older graphics hardware for proper vehicle movement
+- Configures fullscreen mode (required for Army Men II vehicle physics)
 - Disables the dgVoodoo watermark
 - Installs dgVoodooCpl.exe for manual configuration if needed
 
@@ -416,6 +417,23 @@ Use the **Graphics_Switcher.bat** file in your game directory:
    - **Appearance**: Windowed or Full Screen
    - **Scaling mode**: How the image is scaled (centered, stretched, etc.)
 4. Click **Apply** after making changes
+
+### **❓ Vehicles Not Moving (Army Men II)**
+**Problem**: Tanks, jeeps, helicopters, and other vehicles appear frozen, only rotate, or clip through terrain
+
+**Why this happens**: Army Men II's physics are tied to CPU speed and DirectDraw timing. On modern fast CPUs, the game runs too fast internally, causing vehicle movement calculations to break.
+
+**Solution**: The script now uses **dgVoodoo2** instead of cnc-ddraw for Army Men II. dgVoodoo2 simulates older graphics hardware which fixes the vehicle movement issues.
+
+**If you configured Army Men II before this fix**:
+1. Re-run `.\Configure-ArmyMen.ps1 -GameChoice 2`
+2. The script will install dgVoodoo2 and configure fullscreen mode
+3. Vehicles should now move properly
+
+**Manual fix** (if needed):
+1. Download dgVoodoo2 from https://dege.fw.hu/dgVoodoo2/
+2. Copy `MS\x86\DDraw.dll` and `MS\x86\D3DImm.dll` to game folder
+3. Edit `AM2.ini` and set `FullScreen=1`, `Windowed=0`
 
 ## Game Selection
 
